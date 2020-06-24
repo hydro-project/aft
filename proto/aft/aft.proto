@@ -1,0 +1,193 @@
+syntax="proto3";
+
+import "google/protobuf/empty.proto";
+
+service Aft {
+  // Starts a new transaction in the system and returns a unique transaction
+  // ID. The updates made in the context of this transaction will not be
+  // persisted until CommitTransaction is called.
+  rpc StartTransaction(google.protobuf.Empty) returns (TransactionTag) {}
+
+  // Tentatively write a value or batch of values to the storage engine. These
+  // writes will not be committed until CommitTransaction is called. If
+  // AbortTransaction is called, these writes will be dropped.
+  rpc Write(AftKeyRequest) returns (AftKeyRequest) {}
+
+  // Retrieve a value from the storage engine.
+  rpc Read(AftKeyRequest) returns (AftKeyRequest) {}
+
+  // Commits buffered writes to the storage engine. The commit is not
+  // guaranteed to succeed and may depend on the isolation mechanisms being
+  // used in order to determine whether the transactions updates and reads are
+  // valid.
+  rpc CommitTransaction(TransactionTag) returns (TransactionTag) {}
+
+  // Aborts all of the updates made by this transaction. The buffered updates
+  // will be dropped, and the transaction in the underlying engine will be
+  // closed.
+  rpc AbortTransaction(TransactionTag) returns (TransactionTag) {}
+}
+
+// An enum that tracks the status of each transaction.
+enum TransactionStatus {
+  // The default status indicates that the transaction is currently running.
+  RUNNING = 0;
+
+  // This status indicates that the transaction has successfully committed.
+  COMMITTED = 1;
+
+  // This status indicates that the transaction has successfully aborted.
+  ABORTED = 2;
+}
+
+// A token for clients to identify their current transaction.
+message TransactionTag {
+  // The ID of the transaction.
+  string id = 1;
+
+  // The current status of the transaction (see TransactionStatus).
+  TransactionStatus status = 2;
+
+  // The IP address of the replica that received the request.
+  string address = 3;
+}
+
+// A message representing an individual transaction.
+message TransactionRecord {
+  // The UUID assigned to this transaction.
+  string id = 1;
+
+  // The sloppy timestamp given to this transaction by AFT.
+  int64 timestamp = 2;
+
+  // The current status of the transaction (see TransactionStatus).
+  TransactionStatus status = 3;
+
+  // The UUID of the write buffer replica assigned to this transaction --
+  // primarily used for debugging purposes.
+  string replicaId = 4;
+
+  // The set of keys written by this transaction.
+  repeated string writeSet = 5;
+
+  // The set of keys that have been read by this transaction. This maps from
+  // the user-facing key name to the actual key version read.
+  map<string, string> readSet = 6;
+}
+
+// Captures a list of `TransactionRecord`s, used to communicate committed
+// transactions between replicas.
+message TransactionList {
+  // The list of `TransactionRecord`s being communicated.
+  repeated TransactionRecord records = 1;
+}
+
+// A list of transaction UUIDs that are communicated between the GC process and
+// the Aft replicas.
+message TransactionIdList {
+  // The list of transaction UUIDs.
+  repeated string ids = 1;
+}
+
+// A request to read or write a key from an application to the storage engine.
+message AftKeyRequest {
+  // A request to read or write an individual key. If the value is specified,
+  // the request is treated as a write, and if it is not, the request is
+  // treated as a read.
+  message KeyPair {
+    // The key being requested.
+    string key = 1;
+
+    // An optional value for write requests.
+    bytes value = 2;
+  }
+
+  // The transaction ID associated with this request.
+  string tid = 1;
+
+  // A list of requested keys, along with optional bytestrings for PUT requests.
+  repeated KeyPair pairs = 2;
+}
+
+// A message to represent an update to an individual key, written to the
+// storagen engine.
+message KeyValuePair {
+  // The plain key name for this key-value pair. The storage engine key might
+  // vary, depending on the versioning scheme, but this is the user-facing key.
+  string key = 1;
+
+  // The payload for this key-value pair.
+  bytes value = 2;
+
+  // The set of keys written along with this key.
+  repeated string cowrittenKeys = 3;
+
+  // The UUID of the transaction that wrote this update.
+  string tid = 4;
+
+  // The timestamp associated with the transaction that wrote this update.
+  int64 timestamp = 5;
+}
+
+// A request from a client to the AFT cache to update itself with  a
+// transaction's metadata.
+message MetadataRequest {
+  // The ID of the transaction to retrieve.
+  string tid = 1;
+
+  // The address at which to send the response.
+  string responseAddress = 2;
+
+  // The address of the cache immediately preceding this one.
+  string address = 3;
+}
+
+// A request from a client to a cache to commit a transaction.
+message CommitRequest {
+  // The ID of the transaction to commmit.
+  string tid = 1;
+
+  // The address at which to send the response.
+  string responseAddress = 2;
+
+  // The addresses of all caches involved in the transaction.
+  repeated string addresses = 3;
+}
+
+// A request from one AFT cache to another to commit a (part of) a transaction.
+message AftCommitRequest {
+  // The metadata of the transaction to commit.
+  TransactionRecord record = 1;
+
+  // The address at which the receiving node should acknowledge success.
+  string responseAddress = 2;
+}
+
+// A query for a previously written key (within a transaction) between two AFT
+// nodes.
+message AftQuery {
+  // The key to request.
+  string key = 1;
+
+  // The ID of the transaction in which the read is being done.
+  string tid = 2;
+
+  // The address to which the response should be sent.
+  string responseAddress = 3;
+}
+
+// A response sent from one AFT cache to another in response to an AftQuery.
+message AftResponse {
+  // The key of the resopnse.
+  string key = 1;
+
+  // Whether the key was found in this cache or not.
+  bool found = 2;
+
+  // If the key was not found, this field contains a pointer to the next cache
+  // in the chain that should be queried.
+  string pointer = 3;
+
+  // If the key was found, the data associated with the key.
+  bytes data = 4;
+}

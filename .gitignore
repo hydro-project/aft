@@ -1,0 +1,15 @@
+# GO FILES 
+
+# PYTHON FILES
+
+*pyc
+__pycache__
+
+# EXECUTABLES
+
+cmd/aft/aft
+cmd/aft_ipc/aft_ipc
+cmd/benchmark/benchmark
+cmd/gc/gc
+cmd/gc/server/server
+cmd/lb/lb

@@ -1,0 +1,7 @@
+consistencyType: read-atomic
+storageType: anna
+ipAddress: 3.226.122.35
+managerAddress: 127.0.0.1
+elbAddress: a8ccad43f96684dbcba64f4a7fe0acd7-45322942.us-east-1.elb.amazonaws.com
+replicaList: 
+  - 3.226.122.35
